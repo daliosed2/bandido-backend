@@ -1,8 +1,18 @@
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware # Agregamos esta línea
 from pydantic import BaseModel
 from typing import List, Optional
 
 app = FastAPI(title="Bandido Mundialista API", version="1.0")
+
+# --- CONFIGURACIÓN DE CORS (La llave de acceso) ---
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"], # Con esto aceptamos peticiones de cualquier página
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # --- MODELOS DE DATOS (Pydantic valida que la data entre limpia) ---
 class Producto(BaseModel):
