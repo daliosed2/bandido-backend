@@ -3,10 +3,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Dict, Optional
 
-app = FastAPI(title="Bandido Mundialista API", version="1.0")
+app = FastAPI(title="Bandido Mundialista API", version="1.1")
 
-# --- 1. CONFIGURACIÓN DE CORS ---
-# Esto permite que tu frontend de Next.js se comunique con este backend sin bloqueos
+# --- 1. CONFIGURACIÓN DE SEGURIDAD (CORS) ---
+# Permite que tu frontend de Next.js lea los datos de este servidor
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"], 
@@ -15,24 +15,24 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --- 2. MODELOS DE DATOS ---
+# --- 2. MODELO DE DATOS ACTUALIZADO ---
 class Producto(BaseModel):
     id: int
     sku_base: str 
     equipo: str
     precio_venta: float
-    tallas: Dict[str, int] # Ejemplo: {"S": 5, "M": 10}
-    imagen_url: str
+    tallas: Dict[str, int] # Formato: {"S": 5, "M": 0}
+    imagenes: List[str]    # <-- Ahora acepta múltiples fotos por producto
 
 class PedidoWhatsApp(BaseModel):
     nombre_cliente: str
     telefono: str
     producto_id: int
-    talla_elegida: str # La talla que el usuario seleccionó en el frontend
+    talla_elegida: str
     cantidad: int
 
-# --- 3. BASE DE DATOS SIMULADA ---
-# He colocado la imagen que proporcionaste en ambos productos
+# --- 3. BASE DE DATOS (CATÁLOGO) ---
+# RECOMENDACIÓN DE DAVID: Sube tus fotos a Imgur y usa el "Direct Link" (que termine en .png o .jpg)
 inventario_db = [
     {
         "id": 1, 
@@ -40,7 +40,13 @@ inventario_db = [
         "equipo": "Selección Argentina Visitante", 
         "precio_venta": 35.00, 
         "tallas": {"S": 5, "M": 10, "L": 0, "XL": 2}, 
-        "imagen_url": "https://i.imgur.com/Wi5eFJ9.png"
+        # --- CARGA TUS FOTOS AQUÍ ---
+        # La primera imagen de la lista será la portada principal.
+        "imagenes": [
+            "https://i.imgur.com/Wi5eFJ9.png", # Foto de frente
+            "https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEh_fqRFDMdmamTLL2dedMcJjH7EzJMGZN9zi-Nv4Nf4N7gzeM9badQu7xT6FXE_dtlZKS57vplnQllOz_p3LkgGNlZVAuWjylJu84SWH7TTB01OXywjmiNQirJp4085rsdLDJsKV09nUlWu0lCkGxg8OF4cLfgmRPm50CmLn2v6HDOlKiAs8inZo-k-IevY/s1600/se-produce-la-filtracion-de-la-camiseta-visitante-de-argentina-para-el-mundial-de-2026-vista-a-la-venta.jpg", # Foto de espalda o detalle
+            "https://i.imgur.com/Wi5eFJ9.png"  # Foto del escudo/tela
+        ]
     },
     {
         "id": 2, 
@@ -48,19 +54,22 @@ inventario_db = [
         "equipo": "Real Madrid 23/24", 
         "precio_venta": 35.00, 
         "tallas": {"S": 0, "M": 5, "L": 5, "XL": 0}, 
-        "imagen_url": "https://i.imgur.com/Wi5eFJ9.png"
+        "imagenes": [
+            "https://i.imgur.com/Wi5eFJ9.png", # Foto de frente
+            "https://i.imgur.com/Wi5eFJ9.png"  # Foto detalle
+        ]
     }
 ]
 
-# --- 4. ENDPOINTS ---
+# --- 4. ENDPOINTS (RUTAS) ---
 
 @app.get("/", tags=["Estado"])
 def estado_servidor():
-    return {"mensaje": "API de Bandido Mundialista operativa y lista para vender."}
+    return {"mensaje": "API de Bandido Mundialista operativa. ¡A vender!"}
 
 @app.get("/api/productos", response_model=List[Producto], tags=["Catálogo"])
 def obtener_catalogo():
-    # Retorna el inventario completo para que el frontend dibuje las tarjetas
+    # Devuelve la lista completa de productos al frontend
     return inventario_db
 
 @app.post("/api/checkout-whatsapp", tags=["Ventas"])
@@ -71,28 +80,26 @@ def procesar_pedido(pedido: PedidoWhatsApp):
     if not producto:
         raise HTTPException(status_code=404, detail="Camiseta no encontrada")
     
-    # Validamos si la talla elegida existe y tiene stock
+    # Validamos stock de la talla seleccionada
     stock_actual = producto["tallas"].get(pedido.talla_elegida, 0)
     
     if stock_actual < pedido.cantidad:
-        raise HTTPException(status_code=400, detail=f"Stock insuficiente para la talla {pedido.talla_elegida}")
+        raise HTTPException(status_code=400, detail=f"Stock agotado en talla {pedido.talla_elegida}")
 
     total = producto["precio_venta"] * pedido.cantidad
     
-    # Armamos el mensaje para WhatsApp
+    # Generamos el mensaje para WhatsApp
     mensaje_wa = (
-        f"Hola Bandido Mundialista! Soy {pedido.nombre_cliente}. "
-        f"Quiero confirmar mi pedido de {pedido.cantidad} camiseta(s) de "
-        f"{producto['equipo']} (Talla {pedido.talla_elegida}). "
-        f"Total a pagar: ${total}."
+        f"Hola Bandido Mundialista Shop! Soy {pedido.nombre_cliente}. "
+        f"Confirmo pedido de {pedido.cantidad} {producto['equipo']} "
+        f"(Talla {pedido.talla_elegida}). Total: ${total}."
     )
     
-    # Link directo (usando tu número registrado)
+    # Link directo al número registrado
     link_whatsapp = f"https://wa.me/593992753201?text={mensaje_wa.replace(' ', '%20')}"
 
     return {
         "status": "éxito",
-        "mensaje": "Pedido procesado. Redirigiendo a WhatsApp...",
         "link_cierre": link_whatsapp,
-        "total_a_cobrar": total
+        "total": total
     }
