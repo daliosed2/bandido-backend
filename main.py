@@ -5,7 +5,8 @@ from typing import List, Dict, Optional
 
 app = FastAPI(title="Bandido Mundialista API", version="1.0")
 
-# --- 1. CONFIGURACIÓN DE CORS (Permisos para que Next.js pueda leer los datos) ---
+# --- 1. CONFIGURACIÓN DE CORS ---
+# Esto permite que tu frontend de Next.js se comunique con este backend sin bloqueos
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"], 
@@ -14,44 +15,44 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --- 2. MODELOS DE DATOS (Las reglas estrictas de tu negocio) ---
+# --- 2. MODELOS DE DATOS ---
 class Producto(BaseModel):
     id: int
     sku_base: str 
     equipo: str
     precio_venta: float
-    tallas: Dict[str, int] # <-- El formato clave para el frontend: {"Talla": Stock}
+    tallas: Dict[str, int] # Ejemplo: {"S": 5, "M": 10}
     imagen_url: str
 
 class PedidoWhatsApp(BaseModel):
     nombre_cliente: str
     telefono: str
     producto_id: int
-    talla_elegida: str # <-- Ahora el pedido exige saber qué talla eligió
+    talla_elegida: str # La talla que el usuario seleccionó en el frontend
     cantidad: int
 
-# --- 3. BASE DE DATOS (Tu catálogo actual) ---
+# --- 3. BASE DE DATOS SIMULADA ---
+# He colocado la imagen que proporcionaste en ambos productos
 inventario_db = [
     {
         "id": 1, 
         "sku_base": "ARG-VIS-24", 
         "equipo": "Selección Argentina Visitante", 
         "precio_venta": 35.00, 
-        # Control de stock por talla. 0 = Botón bloqueado en la web.
-        "tallas": {"S": 2, "M": 10, "L": 0, "XL": 5}, 
-        "imagen_url": "https://i.imgur.com/kS9Qn1U.jpg"
+        "tallas": {"S": 5, "M": 10, "L": 0, "XL": 2}, 
+        "imagen_url": "https://i.imgur.com/Wi5eFJ9.png"
     },
     {
         "id": 2, 
         "sku_base": "RMA-001", 
         "equipo": "Real Madrid 23/24", 
         "precio_venta": 35.00, 
-        "tallas": {"S": 0, "M": 5, "L": 5, "XL": 2}, 
-        "imagen_url": "https://i.imgur.com/vH9v5qL.jpg"
+        "tallas": {"S": 0, "M": 5, "L": 5, "XL": 0}, 
+        "imagen_url": "https://i.imgur.com/Wi5eFJ9.png"
     }
 ]
 
-# --- 4. ENDPOINTS (Las puertas de acceso a tu sistema) ---
+# --- 4. ENDPOINTS ---
 
 @app.get("/", tags=["Estado"])
 def estado_servidor():
@@ -59,33 +60,39 @@ def estado_servidor():
 
 @app.get("/api/productos", response_model=List[Producto], tags=["Catálogo"])
 def obtener_catalogo():
-    # Devuelve todo el catálogo al frontend de Next.js
+    # Retorna el inventario completo para que el frontend dibuje las tarjetas
     return inventario_db
 
 @app.post("/api/checkout-whatsapp", tags=["Ventas"])
 def procesar_pedido(pedido: PedidoWhatsApp):
-    # 1. Buscamos la camiseta en la base de datos
+    # Buscamos el producto por ID
     producto = next((p for p in inventario_db if p["id"] == pedido.producto_id), None)
     
     if not producto:
         raise HTTPException(status_code=404, detail="Camiseta no encontrada")
     
-    # 2. Validamos que la talla exista y tenga stock
-    stock_disponible = producto["tallas"].get(pedido.talla_elegida, 0)
+    # Validamos si la talla elegida existe y tiene stock
+    stock_actual = producto["tallas"].get(pedido.talla_elegida, 0)
     
-    if stock_disponible < pedido.cantidad:
+    if stock_actual < pedido.cantidad:
         raise HTTPException(status_code=400, detail=f"Stock insuficiente para la talla {pedido.talla_elegida}")
 
-    # 3. Calculamos totales
     total = producto["precio_venta"] * pedido.cantidad
     
-    # 4. Generamos el enlace de WhatsApp (usando el número que pusiste en tu frontend)
-    mensaje_wa = f"Hola Bandido Mundialista Shop ⚽! Soy {pedido.nombre_cliente}. Quiero confirmar mi pedido: {pedido.cantidad} camiseta(s) del {producto['equipo']} (Talla {pedido.talla_elegida}). Total: ${total}."
+    # Armamos el mensaje para WhatsApp
+    mensaje_wa = (
+        f"Hola Bandido Mundialista! Soy {pedido.nombre_cliente}. "
+        f"Quiero confirmar mi pedido de {pedido.cantidad} camiseta(s) de "
+        f"{producto['equipo']} (Talla {pedido.talla_elegida}). "
+        f"Total a pagar: ${total}."
+    )
+    
+    # Link directo (usando tu número registrado)
     link_whatsapp = f"https://wa.me/593992753201?text={mensaje_wa.replace(' ', '%20')}"
 
     return {
         "status": "éxito",
-        "mensaje": "Pedido procesado correctamente.",
+        "mensaje": "Pedido procesado. Redirigiendo a WhatsApp...",
         "link_cierre": link_whatsapp,
         "total_a_cobrar": total
     }
