@@ -51,6 +51,18 @@ inventario_db = [
             "https://i.imgur.com/Wi5eFJ9.png"
         ],
         "descripcion": "La blanca del Rey de Europa. Calidad premium, tejido técnico y ajuste perfecto para el hincha madridista."
+    },
+    {
+        "id": 3, 
+        "sku_base": "RMA-002", 
+        "equipo": "Real Madrid 23/24", 
+        "precio_venta": 35.00, 
+        "tallas": {"S": 0, "M": 5, "L": 5, "XL": 2}, 
+        "imagenes": [
+            "https://i.imgur.com/Wi5eFJ9.png",
+            "https://i.imgur.com/Wi5eFJ9.png"
+        ],
+        "descripcion": "La blanca del Rey de Europa. Calidad premium, tejido técnico y ajuste perfecto para el hincha madridista."
     }
 ]
 
