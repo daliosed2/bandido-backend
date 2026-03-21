@@ -9,7 +9,12 @@ app = FastAPI(title="Bandido Mundialista API", version="1.1")
 # Permite que tu frontend de Next.js lea los datos de este servidor
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], 
+    # IMPORTANTE: Aquí van las URLs que pueden leer tu base de datos
+    allow_origins=[
+        "http://localhost:3000",
+        "https://bandido-frontend.vercel.app",
+        "https://shop.davidfernandomartinez.com"  # <--- TU NUEVO DOMINIO OFICIAL
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
