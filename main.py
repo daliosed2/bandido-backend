@@ -12,7 +12,8 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:3000",
         "https://bandido-frontend.vercel.app",
-        "https://shop.davidfernandomartinez.com"
+        "https://shop.davidfernandomartinez.com", # <--- Tu dominio oficial
+        "http://shop.davidfernandomartinez.com"   # <--- Agregamos la versión sin S por si acaso
     ],
     allow_credentials=True,
     allow_methods=["*"],
