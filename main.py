@@ -23,6 +23,7 @@ class Producto(BaseModel):
     precio_venta: float
     tallas: Dict[str, int] # Formato: {"S": 5, "M": 0}
     imagenes: List[str]    # <-- Ahora acepta múltiples fotos por producto
+    descripcion: str # <-- NUEVO CAMPO
 
 class PedidoWhatsApp(BaseModel):
     nombre_cliente: str
@@ -47,6 +48,7 @@ inventario_db = [
             "https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEh_fqRFDMdmamTLL2dedMcJjH7EzJMGZN9zi-Nv4Nf4N7gzeM9badQu7xT6FXE_dtlZKS57vplnQllOz_p3LkgGNlZVAuWjylJu84SWH7TTB01OXywjmiNQirJp4085rsdLDJsKV09nUlWu0lCkGxg8OF4cLfgmRPm50CmLn2v6HDOlKiAs8inZo-k-IevY/s1600/se-produce-la-filtracion-de-la-camiseta-visitante-de-argentina-para-el-mundial-de-2026-vista-a-la-venta.jpg", # Foto de espalda o detalle
             "https://i.imgur.com/Wi5eFJ9.png"  # Foto del escudo/tela
         ]
+        "descripcion": "Camiseta versión fan de la Selección Argentina. Tela transpirable con tecnología de secado rápido. Escudo bordado y detalles oficiales." # <-- AGREGA ESTO
     },
     {
         "id": 2, 
@@ -58,6 +60,7 @@ inventario_db = [
             "https://i.imgur.com/Wi5eFJ9.png", # Foto de frente
             "https://i.imgur.com/Wi5eFJ9.png"  # Foto detalle
         ]
+        "descripcion": "Camiseta versión fan de la Selección Argentina. Tela transpirable con tecnología de secado rápido. Escudo bordado y detalles oficiales." # <-- AGREGA ESTO
     }
 ]
 
