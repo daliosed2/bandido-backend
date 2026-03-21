@@ -9,12 +9,7 @@ app = FastAPI(title="Bandido Mundialista API")
 # He añadido tu nuevo dominio oficial para que Render lo acepte
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "https://bandido-frontend.vercel.app",
-        "https://shop.davidfernandomartinez.com", # <--- Tu dominio oficial
-        "http://shop.davidfernandomartinez.com"   # <--- Agregamos la versión sin S por si acaso
-    ],
+    allow_origins=["*"], # Esto permite que CUALQUIER dominio lea los datos
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
