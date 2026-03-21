@@ -22,6 +22,7 @@ class Producto(BaseModel):
     talla: str
     precio_venta: float
     stock: int
+    imagen_url: str
 
 class PedidoWhatsApp(BaseModel):
     nombre_cliente: str
@@ -31,8 +32,8 @@ class PedidoWhatsApp(BaseModel):
 
 # --- BASE DE DATOS SIMULADA (Para pruebas rápidas) ---
 inventario_db = [
-    {"id": 1, "sku": "ECU-593-M", "equipo": "Selección Ecuador", "talla": "M", "precio_venta": 45.00, "stock": 10},
-    {"id": 2, "sku": "RMA-001-L", "equipo": "Real Madrid 23/24", "talla": "L", "precio_venta": 50.00, "stock": 5}
+    {"id": 1, "sku": "ECU-593-M", "equipo": "Selección Argentina Visitante", "talla": "M", "precio_venta": 35.00, "stock": 10, "imagen_url": "https://imgur.com/a/13Txew3" },
+    {"id": 2, "sku": "RMA-001-L", "equipo": "Real Madrid 23/24", "talla": "L", "precio_venta": 35.00, "stock": 5}
 ]
 
 # --- ENDPOINTS (Las puertas de acceso a tu sistema) ---
