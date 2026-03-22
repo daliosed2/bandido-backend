@@ -26,16 +26,15 @@ def get_gsheet_client():
 
     # Diccionario con los campos mínimos que gspread/oauth2client necesitan
     creds_dict = {
-        "type": "service_account",
+     "type": "service_account",
         "project_id": os.getenv("G_SHEET_PROJECT_ID"),
         "private_key": private_key,
         "client_email": os.getenv("G_SHEET_CLIENT_EMAIL"),
-        "token_uri": "https://oauth2.google.com/token",
-        # Añadimos estos campos fijos para evitar el error de 'private_key_id'
-        "client_id": None,
-        "private_key_id": None,
+        # CAMBIO CLAVE: Usamos la URL completa de Google para evitar errores de resolución
+        "token_uri": "https://oauth2.googleapis.com/token", 
         "auth_uri": "https://accounts.google.com/o/oauth2/auth",
         "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+        "client_x509_cert_url": f"https://www.googleapis.com/robot/v1/metadata/x509/{os.getenv('G_SHEET_CLIENT_EMAIL')}"
     }
     
     try:
