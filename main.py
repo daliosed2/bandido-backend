@@ -6,7 +6,7 @@ from oauth2client.service_account import ServiceAccountCredentials
 
 app = FastAPI()
 
-# Configuración de CORS para que tu dominio oficial pueda entrar
+# Configuración de CORS para que tu tienda pueda consultar los datos
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["https://shop.davidfernandomartinez.com", "http://localhost:3000"],
@@ -15,34 +15,57 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --- CONFIGURACIÓN DE GOOGLE SHEETS ---
 def get_gsheet_client():
+    """Conexión segura con Google Sheets usando variables de entorno"""
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
     
-    # Extraemos las variables que pusiste en Render
+    # Obtenemos la clave y limpiamos posibles errores de formato (\n)
+    private_key = os.getenv("G_SHEET_PRIVATE_KEY")
+    if private_key:
+        private_key = private_key.replace('\\n', '\n')
+
+    # Diccionario con los campos mínimos que gspread/oauth2client necesitan
     creds_dict = {
         "type": "service_account",
         "project_id": os.getenv("G_SHEET_PROJECT_ID"),
-        "private_key": os.getenv("G_SHEET_PRIVATE_KEY").replace('\\n', '\n'),
+        "private_key": private_key,
         "client_email": os.getenv("G_SHEET_CLIENT_EMAIL"),
         "token_uri": "https://oauth2.google.com/token",
+        # Añadimos estos campos fijos para evitar el error de 'private_key_id'
+        "client_id": None,
+        "private_key_id": None,
+        "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+        "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
     }
     
-    creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
-    return gspread.authorize(creds)
+    try:
+        # Intentamos crear las credenciales
+        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+        return gspread.authorize(creds)
+    except Exception as e:
+        print(f"Error crítico de autenticación: {e}")
+        raise e
 
 @app.get("/api/productos")
 async def get_productos():
     try:
         client = get_gsheet_client()
-        # Aquí usa el ID que pegaste en las variables de Render
-        sheet = client.open_by_key(os.getenv("G_SHEET_ID")).sheet1
+        sheet_id = os.getenv("G_SHEET_ID")
+        
+        # Abrimos la hoja por ID
+        sheet = client.open_by_key(sheet_id).sheet1
         data = sheet.get_all_records()
         
         productos_formateados = []
         for row in data:
-            # Limpiamos la lista de imágenes para no enviar URLs vacías
-            raw_imgs = [row.get("Imagen_1"), row.get("Imagen_2"), row.get("Imagen_3"), row.get("Imagen_4")]
+            # Procesamos las 4 imágenes del Sheet
+            raw_imgs = [
+                row.get("Imagen_1"), 
+                row.get("Imagen_2"), 
+                row.get("Imagen_3"), 
+                row.get("Imagen_4")
+            ]
+            # Solo guardamos las que sean links válidos
             lista_imagenes = [img for img in raw_imgs if img and str(img).startswith('http')]
 
             productos_formateados.append({
@@ -60,5 +83,11 @@ async def get_productos():
                 "descripcion": row.get("Descripcion", "")
             })
         return productos_formateados
+
     except Exception as e:
+        print(f"Error al obtener productos: {e}")
         return {"error": str(e)}
+
+@app.get("/")
+async def root():
+    return {"status": "Bandido Mundialista API is Live ⚽"}
