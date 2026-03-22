@@ -6,7 +6,7 @@ from oauth2client.service_account import ServiceAccountCredentials
 
 app = FastAPI()
 
-# Configuración de CORS para que tu tienda pueda consultar los datos
+# Configuración de CORS para que tu tienda oficial pueda entrar
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["https://shop.davidfernandomartinez.com", "http://localhost:3000"],
@@ -16,33 +16,34 @@ app.add_middleware(
 )
 
 def get_gsheet_client():
-    """Conexión segura con Google Sheets usando variables de entorno"""
+    """Conexión robusta con Google Sheets evitando errores de campos faltantes"""
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
     
-    # Obtenemos la clave y limpiamos posibles errores de formato (\n)
+    # 1. Obtenemos la clave y limpiamos saltos de línea y posibles comillas accidentales
     private_key = os.getenv("G_SHEET_PRIVATE_KEY")
     if private_key:
-        private_key = private_key.replace('\\n', '\n')
+        private_key = private_key.replace('\\n', '\n').strip('"').strip("'")
 
-    # Diccionario con los campos mínimos que gspread/oauth2client necesitan
+    # 2. Diccionario con TODOS los campos que la librería busca por defecto
     creds_dict = {
-     "type": "service_account",
+        "type": "service_account",
         "project_id": os.getenv("G_SHEET_PROJECT_ID"),
+        "private_key_id": "99999999999999999999999999999999", # Valor ficticio para evitar el error
         "private_key": private_key,
         "client_email": os.getenv("G_SHEET_CLIENT_EMAIL"),
-        # CAMBIO CLAVE: Usamos la URL completa de Google para evitar errores de resolución
-        "token_uri": "https://oauth2.googleapis.com/token", 
+        "client_id": "111111111111111111111", # Valor ficticio
         "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+        "token_uri": "https://oauth2.googleapis.com/token",
         "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
         "client_x509_cert_url": f"https://www.googleapis.com/robot/v1/metadata/x509/{os.getenv('G_SHEET_CLIENT_EMAIL')}"
     }
     
     try:
-        # Intentamos crear las credenciales
+        # Intentamos crear las credenciales con el diccionario completo
         creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
         return gspread.authorize(creds)
     except Exception as e:
-        print(f"Error crítico de autenticación: {e}")
+        print(f"Error de autenticación en Google: {e}")
         raise e
 
 @app.get("/api/productos")
@@ -51,20 +52,20 @@ async def get_productos():
         client = get_gsheet_client()
         sheet_id = os.getenv("G_SHEET_ID")
         
-        # Abrimos la hoja por ID
+        # Abrimos la hoja por su ID de la URL
         sheet = client.open_by_key(sheet_id).sheet1
         data = sheet.get_all_records()
         
         productos_formateados = []
         for row in data:
-            # Procesamos las 4 imágenes del Sheet
+            # Procesamos las imágenes (hasta 4)
             raw_imgs = [
                 row.get("Imagen_1"), 
                 row.get("Imagen_2"), 
                 row.get("Imagen_3"), 
                 row.get("Imagen_4")
             ]
-            # Solo guardamos las que sean links válidos
+            # Solo guardamos links reales que empiecen con http
             lista_imagenes = [img for img in raw_imgs if img and str(img).startswith('http')]
 
             productos_formateados.append({
@@ -84,7 +85,7 @@ async def get_productos():
         return productos_formateados
 
     except Exception as e:
-        print(f"Error al obtener productos: {e}")
+        print(f"Error al leer el Sheet: {e}")
         return {"error": str(e)}
 
 @app.get("/")
