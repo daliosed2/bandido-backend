@@ -1,82 +1,64 @@
-from fastapi import FastAPI, HTTPException
+import os
+import gspread
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-from typing import List, Dict
+from oauth2client.service_account import ServiceAccountCredentials
 
-app = FastAPI(title="Bandido Mundialista API")
+app = FastAPI()
 
-# --- 1. CONFIGURACIÓN DE SEGURIDAD (CORS) ---
-# He añadido tu nuevo dominio oficial para que Render lo acepte
+# Configuración de CORS para que tu dominio oficial pueda entrar
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # Esto permite que CUALQUIER dominio lea los datos
+    allow_origins=["https://shop.davidfernandomartinez.com", "http://localhost:3000"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# --- 2. MODELO DE DATOS ---
-class Producto(BaseModel):
-    id: int
-    sku_base: str 
-    equipo: str
-    precio_venta: float
-    tallas: Dict[str, int]
-    imagenes: List[str]
-    descripcion: str
-
-# --- 3. BASE DE DATOS (CATÁLOGO REPARADO) ---
-# REVISIÓN: Todas las líneas terminan en coma para evitar el SyntaxError
-inventario_db = [
-    {
-        "id": 1, 
-        "sku_base": "ARG-VIS-24", 
-        "equipo": "Selección Argentina Visitante 2026 Mundial", 
-        "precio_venta": 35.00, 
-        "tallas": {"S": 5, "M": 10, "L": 2, "XL": 2}, 
-        "imagenes": [
-            "https://i.imgur.com/Wi5eFJ9.png",
-            "https://assets.adidas.com/images/w_940,f_auto,q_auto/a3ad0f0ebbcb4a2bb3e86a34c7746851_9366/KB0639_02_laydown.jpg"
-        ],
-        "descripcion": "Camiseta versión fan de la Selección Argentina. Tela transpirable con tecnología de secado rápido. Escudo bordado y detalles oficiales."
-    },
-    {
-        "id": 2, 
-        "sku_base": "RMA-001", 
-        "equipo": "Real Madrid 25/26", 
-        "precio_venta": 35.00, 
-        "tallas": {"S": 0, "M": 5, "L": 5, "XL": 2}, 
-        "imagenes": [
-            "https://shop.realmadrid.com/cdn/shop/files/RMCFMZ0903_01.jpg?v=1767814763&width=1000",
-            "https://lataquillafutbol.com/wp-content/uploads/2025/06/83ffc95b-scaled.jpg"
-        ],
-        "descripcion": "La blanca del Rey de Europa. Calidad premium, tejido técnico y ajuste perfecto para el hincha madridista."
-    },
-    {
-        "id": 3, 
-        "sku_base": "BAR-001", 
-        "equipo": "Barcelona Visitante Kobe 25/26", 
-        "precio_venta": 35.00, 
-        "tallas": {"S": 0, "M": 5, "L": 5, "XL": 2}, 
-        "imagenes": [
-            "https://store.fcbarcelona.com/cdn/shop/files/HJ4603-784_431735711_D_A_1X1_48cfc706-a037-4073-aa5a-8abbde823c12.jpg?v=1753951926&width=1200",
-            "https://store.fcbarcelona.com/cdn/shop/files/BARCA1-24660.jpg?v=1753951926&width=1200"
-
-        ],
-        "descripcion": "La blanca del Rey de Europa. Calidad premium, tejido técnico y ajuste perfecto para el hincha madridista."
+# --- CONFIGURACIÓN DE GOOGLE SHEETS ---
+def get_gsheet_client():
+    scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+    
+    # Extraemos las variables que pusiste en Render
+    creds_dict = {
+        "type": "service_account",
+        "project_id": os.getenv("G_SHEET_PROJECT_ID"),
+        "private_key": os.getenv("G_SHEET_PRIVATE_KEY").replace('\\n', '\n'),
+        "client_email": os.getenv("G_SHEET_CLIENT_EMAIL"),
+        "token_uri": "https://oauth2.google.com/token",
     }
-]
+    
+    creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+    return gspread.authorize(creds)
 
-# --- 4. RUTAS (ENDPOINTS) ---
-@app.get("/api/productos", response_model=List[Producto])
-def obtener_catalogo():
-    return inventario_db
+@app.get("/api/productos")
+async def get_productos():
+    try:
+        client = get_gsheet_client()
+        # Aquí usa el ID que pegaste en las variables de Render
+        sheet = client.open_by_key(os.getenv("G_SHEET_ID")).sheet1
+        data = sheet.get_all_records()
+        
+        productos_formateados = []
+        for row in data:
+            # Limpiamos la lista de imágenes para no enviar URLs vacías
+            raw_imgs = [row.get("Imagen_1"), row.get("Imagen_2"), row.get("Imagen_3"), row.get("Imagen_4")]
+            lista_imagenes = [img for img in raw_imgs if img and str(img).startswith('http')]
 
-@app.get("/")
-def home():
-    return {"mensaje": "API Bandido Mundialista Online"}
-
-# Endpoint simplificado para que no falle el checkout
-@app.post("/api/checkout-whatsapp")
-def procesar_pedido(pedido: dict):
-    return {"status": "success"}
+            productos_formateados.append({
+                "id": row.get("ID"),
+                "equipo": row.get("Equipo"),
+                "sku": row.get("SKU"),
+                "precio_venta": float(row.get("Precio", 0)),
+                "imagenes": lista_imagenes,
+                "tallas": {
+                    "S": int(row.get("Talla_S", 0)),
+                    "M": int(row.get("Talla_M", 0)),
+                    "L": int(row.get("Talla_L", 0)),
+                    "XL": int(row.get("Talla_XL", 0))
+                },
+                "descripcion": row.get("Descripcion", "")
+            })
+        return productos_formateados
+    except Exception as e:
+        return {"error": str(e)}
