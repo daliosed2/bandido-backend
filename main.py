@@ -16,8 +16,8 @@ origins = [
 
 app.add_middleware(
     CORSMiddleware,
-    # Esta línea permite CUALQUIER link de preview que genere Vercel para tus pruebas
-    allow_origin_regex=r"https://bandido-mundialista-.*\.vercel\.app",
+    # Esta regex es más amplia: acepta cualquier URL que contenga 'bandido' y termine en '.vercel.app'
+    allow_origin_regex=r"https://bandido-.*\.vercel\.app",
     allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
