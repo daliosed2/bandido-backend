@@ -1,12 +1,13 @@
 import os
 import gspread
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from oauth2client.service_account import ServiceAccountCredentials
+from datetime import datetime
 
 app = FastAPI()
 
-# Configuración de CORS
+# Configuración de CORS para tu dominio
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["https://shop.davidfernandomartinez.com", "http://localhost:3000"],
@@ -16,9 +17,7 @@ app.add_middleware(
 )
 
 def get_gsheet_client():
-    """Conexión robusta con Google Sheets"""
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-    
     private_key = os.getenv("G_SHEET_PRIVATE_KEY")
     if private_key:
         private_key = private_key.replace('\\n', '\n').strip('"').strip("'")
@@ -35,35 +34,26 @@ def get_gsheet_client():
         "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
         "client_x509_cert_url": f"https://www.googleapis.com/robot/v1/metadata/x509/{os.getenv('G_SHEET_CLIENT_EMAIL')}"
     }
-    
-    try:
-        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
-        return gspread.authorize(creds)
-    except Exception as e:
-        print(f"Error de autenticación: {e}")
-        raise e
+    creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+    return gspread.authorize(creds)
 
 @app.get("/api/productos")
 async def get_productos():
     try:
         client = get_gsheet_client()
-        sheet_id = os.getenv("G_SHEET_ID")
-        sheet = client.open_by_key(sheet_id).sheet1
+        sheet = client.open_by_key(os.getenv("G_SHEET_ID")).sheet1
         data = sheet.get_all_records()
         
-        productos_formateados = []
+        productos = []
         for row in data:
-            # Procesamos las imágenes
-            raw_imgs = [row.get("Imagen_1"), row.get("Imagen_2"), row.get("Imagen_3"), row.get("Imagen_4")]
-            lista_imagenes = [img for img in raw_imgs if img and str(img).startswith('http')]
-
-            productos_formateados.append({
+            imgs = [row.get("Imagen_1"), row.get("Imagen_2"), row.get("Imagen_3"), row.get("Imagen_4")]
+            productos.append({
                 "id": row.get("ID"),
                 "equipo": row.get("Equipo"),
                 "sku": row.get("SKU"),
-                "categoria": row.get("Categoria", "General"), # LEEMOS LA NUEVA COLUMNA
+                "categoria": row.get("categoria") or row.get("Categoria") or "General",
                 "precio_venta": float(row.get("Precio", 0)),
-                "imagenes": lista_imagenes,
+                "imagenes": [img for img in imgs if img and str(img).startswith('http')],
                 "tallas": {
                     "S": int(row.get("Talla_S", 0)),
                     "M": int(row.get("Talla_M", 0)),
@@ -72,11 +62,35 @@ async def get_productos():
                 },
                 "descripcion": row.get("Descripcion", "")
             })
-        return productos_formateados
-
+        return productos
     except Exception as e:
-        print(f"Error: {e}")
         return {"error": str(e)}
+
+@app.post("/api/registrar-pedido")
+async def registrar_pedido(datos: Request):
+    try:
+        data = await datos.json()
+        client = get_gsheet_client()
+        # ACCEDEMOS A LA PESTAÑA 'Pedidos'
+        sheet = client.open_by_key(os.getenv("G_SHEET_ID")).worksheet("Pedidos")
+        
+        nueva_fila = [
+            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            data.get("producto"),
+            data.get("talla"),
+            data.get("tipo_envio", "Domicilio"),
+            "SÍ 🎁" if data.get("es_regalo") else "No",
+            data.get("nombre_recibe"),
+            data.get("direccion"),
+            data.get("mensaje_tarjeta", ""),
+            "PENDIENTE ⏳", # Estado inicial para auditoría
+            "" # Notas del vendedor
+        ]
+        
+        sheet.append_row(nueva_fila)
+        return {"status": "success"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
 
 @app.get("/")
 async def root():
