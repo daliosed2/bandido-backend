@@ -7,8 +7,7 @@ from datetime import datetime
 
 app = FastAPI()
 
-# --- CONFIGURACIÓN DE SEGURIDAD Y PREPRODUCCIÓN (CORS) ---
-# Esto permite que tu web oficial Y tus pruebas en Vercel funcionen sin bloquearse
+# --- CONFIGURACIÓN DE SEGURIDAD PARA PREPRODUCCIÓN Y PRODUCCIÓN ---
 origins = [
     "https://shop.davidfernandomartinez.com",
     "http://localhost:3000",
@@ -16,7 +15,6 @@ origins = [
 
 app.add_middleware(
     CORSMiddleware,
-    # Esta regex es más amplia: acepta cualquier URL que contenga 'bandido' y termine en '.vercel.app'
     allow_origin_regex=r"https://bandido-.*\.vercel\.app",
     allow_origins=origins,
     allow_credentials=True,
@@ -25,14 +23,8 @@ app.add_middleware(
 )
 
 def get_gsheet_client():
-    """Conexión con la base de datos en Google Sheets"""
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-    
-    private_key = os.getenv("G_SHEET_PRIVATE_KEY")
-    if private_key:
-        # Limpieza de la llave privada para evitar errores de formato en Render
-        private_key = private_key.replace('\\n', '\n').strip('"').strip("'")
-
+    private_key = os.getenv("G_SHEET_PRIVATE_KEY").replace('\\n', '\n').strip('"').strip("'")
     creds_dict = {
         "type": "service_account",
         "project_id": os.getenv("G_SHEET_PROJECT_ID"),
@@ -45,33 +37,27 @@ def get_gsheet_client():
         "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
         "client_x509_cert_url": f"https://www.googleapis.com/robot/v1/metadata/x509/{os.getenv('G_SHEET_CLIENT_EMAIL')}"
     }
-    
     creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
     return gspread.authorize(creds)
 
-# --- RUTA 1: OBTENER INVENTARIO PARA LA TIENDA ---
+# --- OBTENER PRODUCTOS ---
 @app.get("/api/productos")
 async def get_productos():
     try:
         client = get_gsheet_client()
-        sheet_id = os.getenv("G_SHEET_ID")
-        sheet = client.open_by_key(sheet_id).sheet1
+        sheet = client.open_by_key(os.getenv("G_SHEET_ID")).sheet1
         data = sheet.get_all_records()
         
-        productos_formateados = []
+        productos = []
         for row in data:
-            # Procesamos las 4 posibles imágenes
-            raw_imgs = [row.get("Imagen_1"), row.get("Imagen_2"), row.get("Imagen_3"), row.get("Imagen_4")]
-            lista_imagenes = [img for img in raw_imgs if img and str(img).startswith('http')]
-
-            productos_formateados.append({
+            imgs = [row.get("Imagen_1"), row.get("Imagen_2"), row.get("Imagen_3"), row.get("Imagen_4")]
+            productos.append({
                 "id": row.get("ID"),
                 "equipo": row.get("Equipo"),
                 "sku": row.get("SKU"),
-                # Compatible con 'categoria' o 'Categoria' en el Sheet
                 "categoria": row.get("categoria") or row.get("Categoria") or "General",
                 "precio_venta": float(row.get("Precio", 0)),
-                "imagenes": lista_imagenes,
+                "imagenes": [img for img in imgs if img and str(img).startswith('http')],
                 "tallas": {
                     "S": int(row.get("Talla_S", 0)),
                     "M": int(row.get("Talla_M", 0)),
@@ -80,41 +66,75 @@ async def get_productos():
                 },
                 "descripcion": row.get("Descripcion", "")
             })
-        return productos_formateados
-
+        return productos
     except Exception as e:
-        print(f"Error en inventario: {e}")
         return {"error": str(e)}
 
-# --- RUTA 2: REGISTRAR PEDIDOS EN LA PESTAÑA 'Pedidos' ---
+# --- VALIDAR CUPÓN ---
+@app.get("/api/validar-cupon/{codigo}")
+async def validar_cupon(codigo: str):
+    try:
+        client = get_gsheet_client()
+        sheet = client.open_by_key(os.getenv("G_SHEET_ID")).worksheet("Cupones")
+        data = sheet.get_all_records()
+        # Busca el cupón activo
+        cupon = next((c for c in data if str(c['Codigo']).upper() == codigo.upper() and str(c['Activo']).upper() == "SÍ"), None)
+        
+        if cupon:
+            return {"valido": True, "descuento": float(cupon['Descuento_Porcentaje'])}
+        return {"valido": False}
+    except:
+        return {"valido": False}
+
+# --- REGISTRAR PEDIDO (CON CÁLCULO DE PRECIO FINAL) ---
 @app.post("/api/registrar-pedido")
 async def registrar_pedido(request: Request):
     try:
-        datos = await request.json()
+        d = await request.json()
         client = get_gsheet_client()
         sheet_id = os.getenv("G_SHEET_ID")
         
-        # Accedemos específicamente a la pestaña llamada 'Pedidos'
-        sheet = client.open_by_key(sheet_id).worksheet("Pedidos")
+        # 1. Validar Cupón nuevamente (Seguridad)
+        descuento_pct = 0
+        codigo_usado = d.get("cupon", "NINGUNO").upper()
         
-        # Preparamos la fila para auditoría
+        if codigo_usado != "NINGUNO":
+            c_sheet = client.open_by_key(sheet_id).worksheet("Cupones")
+            c_data = c_sheet.get_all_records()
+            found = next((c for c in c_data if str(c['Codigo']).upper() == codigo_usado and str(c['Activo']).upper() == "SÍ"), None)
+            if found:
+                descuento_pct = float(found['Descuento_Porcentaje'])
+            else:
+                codigo_usado = "INVALIDO/EXPIRADO"
+
+        # 2. Cálculos de Precio
+        precio_original = float(d.get("precio", 0))
+        precio_final = precio_original * (1 - (descuento_pct / 100))
+
+        # 3. Mapeo a las columnas del Sheet 'Pedidos'
+        # Fecha | Producto | Talla | Envío | Ciudad | Dirección | Nombre | Regalo | Mensaje | Cupón | Precio_Original | Precio_Final | Estado
+        sheet = client.open_by_key(sheet_id).worksheet("Pedidos")
         nueva_fila = [
-            datetime.now().strftime("%Y-%m-%d %H:%M:%S"), # Fecha
-            datos.get("producto"),                         # Equipo
-            datos.get("talla"),                            # Talla elegida
-            datos.get("tipo_envio", "Domicilio"),          # Domicilio / Retiro
-            "SÍ 🎁" if datos.get("es_regalo") else "No",    # Es regalo
-            datos.get("nombre_recibe"),                    # Quién recibe
-            f"{datos.get('ciudad', '')} - {datos.get('direccion', '')}", # Ubicación completa
-            datos.get("mensaje_tarjeta", ""),              # Mensaje personalizado
-            "PENDIENTE ⏳",                                # Estado de venta (Control David)
-            ""                                             # Notas adicionales
+            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            d.get("producto"),
+            d.get("talla"),
+            d.get("tipo_envio"),
+            d.get("ciudad", "N/A"),
+            d.get("direccion", "N/A"),
+            d.get("nombre_recibe"),
+            "SÍ 🎁" if d.get("es_regalo") else "No",
+            d.get("mensaje_tarjeta", ""),
+            codigo_usado,
+            f"{precio_original:.2f}",
+            f"{precio_final:.2f}",
+            "PENDIENTE ⏳"
         ]
         
         sheet.append_row(nueva_fila)
-        return {"status": "success", "message": "Pedido guardado"}
+        return {"status": "success", "precio_final": precio_final}
+
     except Exception as e:
-        print(f"Error registrando pedido: {e}")
+        print(f"Error: {e}")
         return {"status": "error", "message": str(e)}
 
 @app.get("/")
