@@ -86,7 +86,7 @@ async def validar_cupon(codigo: str):
     except:
         return {"valido": False}
 
-# --- REGISTRAR PEDIDO (CON CÁLCULO DE PRECIO FINAL) ---
+# --- REGISTRAR PEDIDO (CON CAPTURA DE LEADS) ---
 @app.post("/api/registrar-pedido")
 async def registrar_pedido(request: Request):
     try:
@@ -111,8 +111,12 @@ async def registrar_pedido(request: Request):
         precio_original = float(d.get("precio", 0))
         precio_final = precio_original * (1 - (descuento_pct / 100))
 
-        # 3. Mapeo a las columnas del Sheet 'Pedidos'
-        # Fecha | Producto | Talla | Envío | Ciudad | Dirección | Nombre | Regalo | Mensaje | Cupón | Precio_Original | Precio_Final | Estado
+        # 🔥 3. CAPTURA DE FIRST-PARTY DATA
+        email = d.get("email", "Sin correo")
+        telefono = d.get("telefono", "Sin teléfono")
+
+        # 4. Mapeo a las columnas del Sheet 'Pedidos'
+        # Fecha | Producto | Talla | Envío | Ciudad | Dirección | Nombre | Regalo | Mensaje | Cupón | Precio_Original | Precio_Final | Estado | Email | Teléfono
         sheet = client.open_by_key(sheet_id).worksheet("Pedidos")
         nueva_fila = [
             datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -127,7 +131,9 @@ async def registrar_pedido(request: Request):
             codigo_usado,
             f"{precio_original:.2f}",
             f"{precio_final:.2f}",
-            "PENDIENTE ⏳"
+            "PENDIENTE ⏳",
+            email,      # <--- Columna N
+            telefono    # <--- Columna O
         ]
         
         sheet.append_row(nueva_fila)
