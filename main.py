@@ -40,15 +40,43 @@ def get_gsheet_client():
     creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
     return gspread.authorize(creds)
 
-# --- OBTENER DATOS UNIFICADOS (PRODUCTOS Y BANNERS) ---
-# 🔥 ESTA RUTA AHORA ES UNIFICADA PARA NO HACER DOBLE FETCH EN FRONTEND
+# 🔥 RUTA 1 RESTAURADA: PRODUCTOS ORIGINALES (Evita que colapsen las páginas individuales)
+@app.get("/api/productos")
+async def get_productos():
+    try:
+        client = get_gsheet_client()
+        sheet = client.open_by_key(os.getenv("G_SHEET_ID")).sheet1
+        data = sheet.get_all_records()
+        
+        productos = []
+        for row in data:
+            imgs = [row.get("Imagen_1"), row.get("Imagen_2"), row.get("Imagen_3"), row.get("Imagen_4")]
+            productos.append({
+                "id": row.get("ID"),
+                "equipo": row.get("Equipo"),
+                "sku": row.get("SKU"),
+                "categoria": row.get("categoria") or row.get("Categoria") or "General",
+                "precio_venta": float(row.get("Precio", 0)),
+                "imagenes": [img for img in imgs if img and str(img).startswith('http')],
+                "tallas": {
+                    "S": int(row.get("Talla_S", 0)),
+                    "M": int(row.get("Talla_M", 0)),
+                    "L": int(row.get("Talla_L", 0)),
+                    "XL": int(row.get("Talla_XL", 0))
+                },
+                "descripcion": row.get("Descripcion", "")
+            })
+        return productos
+    except Exception as e:
+        return {"error": str(e)}
+
+# 🔥 RUTA 2: UNIFICADA PARA LA HOME (Productos + Banners)
 @app.get("/api/unificada")
 async def get_unificada():
     try:
         client = get_gsheet_client()
         sheet_id = os.getenv("G_SHEET_ID")
         
-        # --- 1. Obtener Productos ---
         p_sheet = client.open_by_key(sheet_id).sheet1
         p_data = p_sheet.get_all_records()
         
@@ -71,19 +99,16 @@ async def get_unificada():
                 "descripcion": row.get("Descripcion", "")
             })
             
-        # 🔥 --- 2. NUEVA SECCIÓN: Obtener Banners ---
-        # Requiere que crees una pestaña "Banners" en tu Google Sheet con columnas "Imagen_URL" y "Link_URL"
         banner = None
         try:
             b_sheet = client.open_by_key(sheet_id).worksheet("Banners")
             b_data = b_sheet.get_all_records()
             if b_data:
-                # Tomamos el primer banner activo que encontremos (asumimos la primera fila)
                 banner = {
                     "imagen": b_data[0].get("Imagen_URL"),
                     "link": b_data[0].get("Link_URL")
                 }
-        except: pass # Si no existe la pestaña, simplemente devolvemos None
+        except: pass
 
         return {"productos": productos, "banner": banner}
         
@@ -111,21 +136,55 @@ async def registrar_pedido(request: Request):
         d = await request.json()
         client = get_gsheet_client()
         sheet_id = os.getenv("G_SHEET_ID")
+        
         descuento_pct = 0
         codigo_usado = d.get("cupon", "NINGUNO").upper()
+        
         if codigo_usado != "NINGUNO":
             c_sheet = client.open_by_key(sheet_id).worksheet("Cupones")
             c_data = c_sheet.get_all_records()
             found = next((c for c in c_data if str(c['Codigo']).upper() == codigo_usado and str(c['Activo']).upper() == "SÍ"), None)
-            if found: descuento_pct = float(found['Descuento_Porcentaje'])
-            else: codigo_usado = "INVALIDO/EXPIRADO"
-        precio_original = float(d.get("precio", 0))
-        precio_final = precio_original * (1 - (descuento_pct / 100))
+            if found:
+                descuento_pct = float(found['Descuento_Porcentaje'])
+            else:
+                codigo_usado = "INVALIDO/EXPIRADO"
+
+        # Cálculos Financieros Corregidos
+        precio_base_camiseta = float(d.get("precio", 0)) 
+        costo_empaque = 3.00 if d.get("es_regalo") else 0.00
+        
+        precio_original_total = precio_base_camiseta + costo_empaque
+        precio_final = (precio_base_camiseta * (1 - (descuento_pct / 100))) + costo_empaque
+
+        email = d.get("email", "Sin correo")
+        telefono = d.get("telefono", "Sin teléfono")
+
         sheet = client.open_by_key(sheet_id).worksheet("Pedidos")
-        nueva_fila = [datetime.now().strftime("%Y-%m-%d %H:%M:%S"), d.get("producto"), d.get("talla"), d.get("tipo_envio"), d.get("ciudad", "N/A"), d.get("direccion", "N/A"), d.get("nombre_recibe"), "SÍ 🎁" if d.get("es_regalo") else "No", d.get("mensaje_tarjeta", ""), codigo_usado, f"{precio_original:.2f}", f"{precio_final:.2f}", "PENDIENTE ⏳", d.get("email"), d.get("telefono")]
+        nueva_fila = [
+            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            d.get("producto"),
+            d.get("talla"),
+            d.get("tipo_envio"),
+            d.get("ciudad", "N/A"),
+            d.get("direccion", "N/A"),
+            d.get("nombre_recibe"),
+            "SÍ 🎁" if d.get("es_regalo") else "No",
+            d.get("mensaje_tarjeta", ""),
+            codigo_usado,
+            f"{precio_original_total:.2f}",
+            f"{precio_final:.2f}",
+            "PENDIENTE ⏳",
+            email,
+            telefono
+        ]
+        
         sheet.append_row(nueva_fila)
         return {"status": "success", "precio_final": precio_final}
-    except Exception as e: return {"status": "error", "message": str(e)}
+
+    except Exception as e:
+        print(f"Error: {e}")
+        return {"status": "error", "message": str(e)}
 
 @app.get("/")
-async def root(): return {"status": "Bandido Mundialista API is Live ⚽"}
+async def root():
+    return {"status": "Bandido Mundialista API is Live ⚽"}
