@@ -77,7 +77,6 @@ async def validar_cupon(codigo: str):
         client = get_gsheet_client()
         sheet = client.open_by_key(os.getenv("G_SHEET_ID")).worksheet("Cupones")
         data = sheet.get_all_records()
-        # Busca el cupón activo
         cupon = next((c for c in data if str(c['Codigo']).upper() == codigo.upper() and str(c['Activo']).upper() == "SÍ"), None)
         
         if cupon:
@@ -86,7 +85,7 @@ async def validar_cupon(codigo: str):
     except:
         return {"valido": False}
 
-# --- REGISTRAR PEDIDO (CON CAPTURA DE LEADS) ---
+# --- REGISTRAR PEDIDO (MATEMÁTICA Y LEADS CORREGIDOS) ---
 @app.post("/api/registrar-pedido")
 async def registrar_pedido(request: Request):
     try:
@@ -94,7 +93,7 @@ async def registrar_pedido(request: Request):
         client = get_gsheet_client()
         sheet_id = os.getenv("G_SHEET_ID")
         
-        # 1. Validar Cupón nuevamente (Seguridad)
+        # 1. Validar Cupón
         descuento_pct = 0
         codigo_usado = d.get("cupon", "NINGUNO").upper()
         
@@ -107,16 +106,18 @@ async def registrar_pedido(request: Request):
             else:
                 codigo_usado = "INVALIDO/EXPIRADO"
 
-        # 2. Cálculos de Precio
-        precio_original = float(d.get("precio", 0))
-        precio_final = precio_original * (1 - (descuento_pct / 100))
+        # 🔥 2. CÁLCULOS FINANCIEROS CORREGIDOS (Evitando la doble contabilidad)
+        precio_base_camiseta = float(d.get("precio", 0)) 
+        costo_empaque = 3.00 if d.get("es_regalo") else 0.00
+        
+        precio_original_total = precio_base_camiseta + costo_empaque
+        precio_final = (precio_base_camiseta * (1 - (descuento_pct / 100))) + costo_empaque
 
-        # 🔥 3. CAPTURA DE FIRST-PARTY DATA
+        # 3. CAPTURA DE LEADS
         email = d.get("email", "Sin correo")
         telefono = d.get("telefono", "Sin teléfono")
 
-        # 4. Mapeo a las columnas del Sheet 'Pedidos'
-        # Fecha | Producto | Talla | Envío | Ciudad | Dirección | Nombre | Regalo | Mensaje | Cupón | Precio_Original | Precio_Final | Estado | Email | Teléfono
+        # 4. Inyección a Google Sheets (Asegurando columnas 11 y 12 correctas)
         sheet = client.open_by_key(sheet_id).worksheet("Pedidos")
         nueva_fila = [
             datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -129,11 +130,11 @@ async def registrar_pedido(request: Request):
             "SÍ 🎁" if d.get("es_regalo") else "No",
             d.get("mensaje_tarjeta", ""),
             codigo_usado,
-            f"{precio_original:.2f}",
+            f"{precio_original_total:.2f}",
             f"{precio_final:.2f}",
             "PENDIENTE ⏳",
-            email,      # <--- Columna N
-            telefono    # <--- Columna O
+            email,
+            telefono
         ]
         
         sheet.append_row(nueva_fila)
