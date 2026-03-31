@@ -40,7 +40,7 @@ def get_gsheet_client():
     creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
     return gspread.authorize(creds)
 
-# 🔥 RUTA 1 RESTAURADA: PRODUCTOS ORIGINALES (Evita que colapsen las páginas individuales)
+# 🔥 RUTA 1: PRODUCTOS ORIGINALES (Con validación de Visibilidad y Orden)
 @app.get("/api/productos")
 async def get_productos():
     try:
@@ -50,6 +50,17 @@ async def get_productos():
         
         productos = []
         for row in data:
+            # 🔥 VALIDACIÓN 1: ¿Está activo? Si dice "NO", saltamos esta fila.
+            activo = str(row.get("Activo", "SÍ")).strip().upper()
+            if activo == "NO":
+                continue
+
+            # 🔥 VALIDACIÓN 2: Orden de prioridad. Si está vacío, va al fondo (9999).
+            try:
+                orden = int(row.get("Orden") or 9999)
+            except:
+                orden = 9999
+
             imgs = [row.get("Imagen_1"), row.get("Imagen_2"), row.get("Imagen_3"), row.get("Imagen_4")]
             productos.append({
                 "id": row.get("ID"),
@@ -64,13 +75,17 @@ async def get_productos():
                     "L": int(row.get("Talla_L", 0)),
                     "XL": int(row.get("Talla_XL", 0))
                 },
-                "descripcion": row.get("Descripcion", "")
+                "descripcion": row.get("Descripcion", ""),
+                "orden": orden
             })
+            
+        # Ordenamos la lista de menor a mayor basado en el número de la columna "Orden"
+        productos = sorted(productos, key=lambda x: x["orden"])
         return productos
     except Exception as e:
         return {"error": str(e)}
 
-# 🔥 RUTA 2: UNIFICADA PARA LA HOME (Productos + Banners)
+# 🔥 RUTA 2: UNIFICADA PARA LA HOME (Con validación de Visibilidad y Orden)
 @app.get("/api/unificada")
 async def get_unificada():
     try:
@@ -82,6 +97,17 @@ async def get_unificada():
         
         productos = []
         for row in p_data:
+            # 🔥 VALIDACIÓN 1: Visibilidad
+            activo = str(row.get("Activo", "SÍ")).strip().upper()
+            if activo == "NO":
+                continue
+
+            # 🔥 VALIDACIÓN 2: Orden
+            try:
+                orden = int(row.get("Orden") or 9999)
+            except:
+                orden = 9999
+
             imgs = [row.get("Imagen_1"), row.get("Imagen_2"), row.get("Imagen_3"), row.get("Imagen_4")]
             productos.append({
                 "id": row.get("ID"),
@@ -96,8 +122,11 @@ async def get_unificada():
                     "L": int(row.get("Talla_L", 0)),
                     "XL": int(row.get("Talla_XL", 0))
                 },
-                "descripcion": row.get("Descripcion", "")
+                "descripcion": row.get("Descripcion", ""),
+                "orden": orden
             })
+            
+        productos = sorted(productos, key=lambda x: x["orden"])
             
         banner = None
         try:
@@ -149,12 +178,11 @@ async def registrar_pedido(request: Request):
             else:
                 codigo_usado = "INVALIDO/EXPIRADO"
 
-        # Cálculos Financieros Corregidos
-        precio_base_camiseta = float(d.get("precio", 0)) 
+        precio_base = float(d.get("precio", 0)) 
         costo_empaque = 3.00 if d.get("es_regalo") else 0.00
         
-        precio_original_total = precio_base_camiseta + costo_empaque
-        precio_final = (precio_base_camiseta * (1 - (descuento_pct / 100))) + costo_empaque
+        precio_original_total = precio_base + costo_empaque
+        precio_final = (precio_base * (1 - (descuento_pct / 100))) + costo_empaque
 
         email = d.get("email", "Sin correo")
         telefono = d.get("telefono", "Sin teléfono")
