@@ -9,7 +9,8 @@ app = FastAPI()
 
 # --- CONFIGURACIÓN DE SEGURIDAD PARA PREPRODUCCIÓN Y PRODUCCIÓN ---
 origins = [
-    "https://shop.davidfernandomartinez.com",
+     "https://bandidostores.com",
+    "https://www.bandidostores.com",
     "http://localhost:3000",
 ]
 
